@@ -175,6 +175,85 @@ export async function getContactEditHistory(contactId: number) {
 }
 
 /**
+ * 根据 ID 获取单条编辑日志
+ */
+export async function getEditLogById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(contactEditLogs)
+    .where(eq(contactEditLogs.id, id))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * 撤销一条编辑记录：将字段还原为 old_value，并写入撤销历史
+ */
+export async function revertEditLog(
+  logId: number,
+  revertedBy: string
+): Promise<{ success: true }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // 获取原始日志
+  const log = await getEditLogById(logId);
+  if (!log) throw new Error("记录不存在");
+  if (log.isReverted) throw new Error("该记录已经被撤销过，不能重复撤销");
+
+  // 获取联系人当前字段值（用于写入撤销历史的 oldValue）
+  const contact = await getContactById(log.contactId);
+  if (!contact) throw new Error("联系人不存在");
+
+  const fieldMap: Record<string, keyof typeof contact> = {
+    company: "company",
+    contactName: "contactName",
+    title: "title",
+    phone: "phone",
+    email: "email",
+  };
+  const fieldKey = log.fieldKey;
+  const contactField = fieldMap[fieldKey];
+  if (!contactField) throw new Error(`不支持撤销字段: ${fieldKey}`);
+
+  const currentValue = (contact[contactField] as string | null) ?? null;
+  const restoreValue = log.oldValue ?? null;
+
+  // 将字段还原为修改前的值
+  await db
+    .update(contacts)
+    .set({ [fieldKey]: restoreValue, updatedAt: new Date(), updatedBy: revertedBy })
+    .where(eq(contacts.id, log.contactId));
+
+  // 标记原日志为已撤销
+  const revertNote = `由 ${revertedBy} 撤销`;
+  await db
+    .update(contactEditLogs)
+    .set({ isReverted: 1, revertNote })
+    .where(eq(contactEditLogs.id, logId));
+
+  // 写入撤销操作的历史记录
+  const snapshot = (() => {
+    try { return JSON.parse(log.contactSnapshot || "{}"); } catch { return {}; }
+  })();
+  await db.insert(contactEditLogs).values({
+    contactId: log.contactId,
+    field: log.field,
+    fieldKey: log.fieldKey,
+    oldValue: currentValue,
+    newValue: restoreValue,
+    editedBy: revertedBy,
+    contactSnapshot: JSON.stringify(snapshot),
+    isReverted: 0,
+    revertNote: `撤销操作（还原为修改前的值）`,
+  });
+
+  return { success: true };
+}
+
+/**
  * 查询全局编辑历史（分页）
  */
 export async function listEditLogs(params: { page: number; pageSize: number; editedBy?: string }) {

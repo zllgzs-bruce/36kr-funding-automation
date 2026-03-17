@@ -3,7 +3,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { searchContacts, updateContact, getContactById, getContactsCount, writeEditLogs, getContactEditHistory, listEditLogs } from "./db";
+import { searchContacts, updateContact, getContactById, getContactsCount, writeEditLogs, getContactEditHistory, listEditLogs, revertEditLog } from "./db";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 
@@ -133,6 +133,14 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return await listEditLogs(input);
+      }),
+
+    // 撤销一条编辑记录
+    revert: protectedProcedure
+      .input(z.object({ logId: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        const revertedBy = ctx.user?.name || "团队成员";
+        return await revertEditLog(input.logId, revertedBy);
       }),
   }),
 });

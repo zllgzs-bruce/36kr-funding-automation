@@ -36,6 +36,13 @@
       "when": 1773714298021,
       "tag": "0004_medical_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1773719759879,
+      "tag": "0005_opposite_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

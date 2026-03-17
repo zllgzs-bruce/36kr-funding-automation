@@ -50,6 +50,8 @@ export const contactEditLogs = mysqlTable("contact_edit_logs", {
   newValue: text("new_value"),                      // 修改后的值
   editedBy: varchar("edited_by", { length: 128 }),  // 操作人
   contactSnapshot: text("contact_snapshot"),        // 修改时联系人的公司+姓名快照（JSON）
+  isReverted: tinyint("is_reverted").default(0).notNull(), // 是否已被撤销
+  revertNote: varchar("revert_note", { length: 256 }), // 撤销备注（如：由张威撤销）
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
