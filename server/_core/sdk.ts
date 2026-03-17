@@ -268,6 +268,21 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
+
+    // ── 团队账号：跳过 Manus OAuth，直接本地处理 ──
+    if (sessionUserId === "team-user") {
+      await db.upsertUser({
+        openId: "team-user",
+        name: session.name || "团队成员",
+        email: null,
+        loginMethod: "password",
+        lastSignedIn: signedInAt,
+      });
+      const teamUser = await db.getUserByOpenId("team-user");
+      if (!teamUser) throw ForbiddenError("Team user not found");
+      return teamUser;
+    }
+
     let user = await db.getUserByOpenId(sessionUserId);
 
     // If user not in DB, sync from OAuth server automatically

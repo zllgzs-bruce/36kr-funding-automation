@@ -1,0 +1,1 @@
+ALTER TABLE `contacts` MODIFY COLUMN `phone` varchar(128);
