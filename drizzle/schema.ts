@@ -37,3 +37,21 @@ export const contacts = mysqlTable("contacts", {
 
 export type Contact = typeof contacts.$inferSelect;
 export type InsertContact = typeof contacts.$inferInsert;
+
+/**
+ * 联系人编辑历史表 - 记录每次字段变更
+ */
+export const contactEditLogs = mysqlTable("contact_edit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  contactId: int("contact_id").notNull(),          // 关联的联系人ID
+  field: varchar("field", { length: 64 }).notNull(), // 被修改的字段名（中文）
+  fieldKey: varchar("field_key", { length: 64 }).notNull(), // 字段英文key
+  oldValue: text("old_value"),                      // 修改前的值
+  newValue: text("new_value"),                      // 修改后的值
+  editedBy: varchar("edited_by", { length: 128 }),  // 操作人
+  contactSnapshot: text("contact_snapshot"),        // 修改时联系人的公司+姓名快照（JSON）
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ContactEditLog = typeof contactEditLogs.$inferSelect;
+export type InsertContactEditLog = typeof contactEditLogs.$inferInsert;

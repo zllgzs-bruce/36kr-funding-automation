@@ -3,7 +3,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { searchContacts, updateContact, getContactById, getContactsCount } from "./db";
+import { searchContacts, updateContact, getContactById, getContactsCount, writeEditLogs, getContactEditHistory, listEditLogs } from "./db";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 
@@ -69,9 +69,46 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
-        const updatedBy = ctx.user?.name || "团队成员";
-        await updateContact(id, { ...data, updatedBy });
+        const editedBy = ctx.user?.name || "团队成员";
+
+        // 先读取旧值，用于对比变更
+        const oldContact = await getContactById(id);
+        const oldData: Record<string, string | null> = {
+          company: oldContact?.company ?? null,
+          contactName: oldContact?.contactName ?? null,
+          title: oldContact?.title ?? null,
+          phone: oldContact?.phone ?? null,
+          email: oldContact?.email ?? null,
+        };
+
+        // 构建新值（只包含本次传入的字段）
+        const newData: Record<string, string | null> = {};
+        if (data.company !== undefined) newData.company = data.company || null;
+        if (data.contactName !== undefined) newData.contactName = data.contactName || null;
+        if (data.title !== undefined) newData.title = data.title || null;
+        if (data.phone !== undefined) newData.phone = data.phone || null;
+        if (data.email !== undefined) newData.email = data.email || null;
+
+        // 执行更新
+        await updateContact(id, { ...data, updatedBy: editedBy });
+
+        // 写入编辑历史
+        await writeEditLogs(
+          id,
+          oldData,
+          newData,
+          editedBy,
+          { company: oldContact?.company ?? null, contactName: oldContact?.contactName ?? null }
+        );
+
         return { success: true };
+      }),
+
+    // 获取单条联系人的编辑历史
+    getHistory: protectedProcedure
+      .input(z.object({ contactId: z.number().int() }))
+      .query(async ({ input }) => {
+        return await getContactEditHistory(input.contactId);
       }),
 
     // 获取单条记录（需要登录）
@@ -79,6 +116,19 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int() }))
       .query(async ({ input }) => {
         return await getContactById(input.id);
+      }),
+  }),
+
+  editLogs: router({
+    // 全局编辑历史（分页）
+    list: protectedProcedure
+      .input(z.object({
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(1).max(100).default(30),
+        editedBy: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        return await listEditLogs(input);
       }),
   }),
 });

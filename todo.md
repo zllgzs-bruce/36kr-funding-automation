@@ -36,3 +36,14 @@
 - [ ] 数据导出功能（Excel/CSV）
 - [ ] 编辑历史记录（谁在什么时间改了什么）
 - [ ] 批量导入新联系人
+
+## 编辑历史功能（新增）
+
+- [x] contact_edit_logs 表 schema 设计（contact_id, field, old_value, new_value, edited_by, created_at）
+- [x] 数据库迁移推送
+- [x] 修改 contacts.update 接口，写入历史记录
+- [x] 新增 contacts.getHistory 接口（按 contact_id 查询）
+- [x] 新增 editLogs.list 接口（全局历史，支持分页）
+- [x] 编辑历史前端页面（全局历史列表）
+- [x] 导航栏增加“编辑历史”入口（顶部 Tab 切换）
+- [x] Vitest 测试覆盖历史记录写入逻辑（13 项测试全部通过）
