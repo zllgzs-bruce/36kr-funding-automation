@@ -22,14 +22,18 @@ export const appRouter = router({
     }),
     // 统一账号密码登录（不依赖 Manus OAuth）
     teamLogin: publicProcedure
-      .input(z.object({ username: z.string(), password: z.string() }))
+      .input(z.object({
+        username: z.string(),
+        password: z.string(),
+        userName: z.string().min(1, "姓名不能为空").max(32, "姓名最夓32个字符"),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (input.username !== TEAM_USERNAME || input.password !== TEAM_PASSWORD) {
           throw new Error("账号或密码错误");
         }
-        // 使用 sdk.signSession 生成与框架兼容的 JWT（包含 openId / appId / name）
+        // 将用户输入的姓名写入 JWT——后续编辑操作将使用该姓名
         const token = await sdk.signSession(
-          { openId: "team-user", appId: ENV.appId || "phonebook", name: "团队成员" },
+          { openId: "team-user", appId: ENV.appId || "phonebook", name: input.userName },
           { expiresInMs: 30 * 24 * 60 * 60 * 1000 }
         );
 
