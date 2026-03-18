@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { runDailyFundingReport } from "../funding";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,6 +36,24 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // 融资日报 cron 触发接口（供 cron-job.org 调用，用密钥验证）
+  app.post("/api/funding-cron", async (req, res) => {
+    const CRON_SECRET = process.env.CRON_SECRET || "";
+    const key = (req.query.key as string) || req.headers["x-cron-key"] || "";
+    if (!CRON_SECRET || key !== CRON_SECRET) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    try {
+      // 异步执行，立即返回202避免cron超时
+      res.status(202).json({ message: "Funding report triggered" });
+      const result = await runDailyFundingReport();
+      console.log("[CronJob] Funding report result:", result);
+    } catch (err) {
+      console.error("[CronJob] Funding report error:", err);
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

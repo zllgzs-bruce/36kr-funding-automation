@@ -6,6 +6,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { searchContacts, updateContact, getContactById, getContactsCount, writeEditLogs, getContactEditHistory, listEditLogs, revertEditLog } from "./db";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
+import { runDailyFundingReport } from "./funding";
 
 // 团队共享密码（通过环境变量配置）
 const TEAM_PASSWORD = process.env.TEAM_PASSWORD || "phonebook2024";
@@ -121,6 +122,19 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await getContactById(input.id);
       }),
+  }),
+
+  // 融资日报触发接口
+  funding: router({
+    // 手动触发融资日报（需要登录）
+    triggerReport: protectedProcedure
+      .mutation(async () => {
+        const result = await runDailyFundingReport();
+        return result;
+      }),
+
+    // cron-job.org 定时触发（用密钥验证，无需登录）
+    // 通过 POST /api/funding-cron?key=<CRON_SECRET> 触发
   }),
 
   editLogs: router({

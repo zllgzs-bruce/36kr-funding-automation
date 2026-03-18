@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, float, tinyint } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, float, tinyint, date } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -57,3 +57,25 @@ export const contactEditLogs = mysqlTable("contact_edit_logs", {
 
 export type ContactEditLog = typeof contactEditLogs.$inferSelect;
 export type InsertContactEditLog = typeof contactEditLogs.$inferInsert;
+
+/**
+ * 36氪融资快讯缓存表
+ */
+export const fundingItems = mysqlTable("funding_items", {
+  id: int("id").autoincrement().primaryKey(),
+  reportDate: varchar("report_date", { length: 16 }).notNull(),   // 日期 YYYY-MM-DD
+  title: text("title").notNull(),
+  link: varchar("link", { length: 1024 }).notNull().unique(),      // 用link做唯一键去重
+  published: varchar("published", { length: 128 }),
+  desc: text("desc"),
+  investedCompany: varchar("invested_company", { length: 512 }),
+  investedCompanyShort: varchar("invested_company_short", { length: 256 }),
+  investors: text("investors"),                                    // JSON数组字符串
+  amount: varchar("amount", { length: 128 }),
+  round: varchar("round", { length: 64 }),
+  industry: varchar("industry", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type FundingItem = typeof fundingItems.$inferSelect;
+export type InsertFundingItem = typeof fundingItems.$inferInsert;

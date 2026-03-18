@@ -43,6 +43,13 @@
       "when": 1773719759879,
       "tag": "0005_opposite_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1773837709426,
+      "tag": "0006_new_the_professor",
+      "breakpoints": true
     }
   ]
 }
