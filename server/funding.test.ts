@@ -261,6 +261,41 @@ describe("企业名去重逻辑", () => {
   });
 });
 
+describe("无融资快讯时的简短通知邮件", () => {
+  function buildNoItemsEmailHtml(reportDate: string): string {
+    return `<html>\n<head><meta charset="utf-8"></head>\n<body style="font-family:'PingFang SC','Helvetica Neue',Arial,sans-serif;color:#333;max-width:700px;margin:0 auto;padding:20px;background:#fafafa;">\n  <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);overflow:hidden;">\n    <div style="background:linear-gradient(135deg,#95a5a6,#7f8c8d);padding:24px 28px;">\n      <h1 style="margin:0;color:#fff;font-size:20px;font-weight:bold;">36氪融资日报</h1>\n      <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">${reportDate} · 今日无新增融资快讯</p>\n    </div>\n  </div>\n</body>\n</html>`;
+  }
+
+  it("无融资时生成的HTML应包含「今日无新增融资快讯」", () => {
+    const html = buildNoItemsEmailHtml("2026-03-20");
+    expect(html).toContain("今日无新增融资快讯");
+    expect(html).toContain("2026-03-20");
+    expect(html).toContain("36氪融资日报");
+  });
+
+  it("无融资时应不包含融资条目内容", () => {
+    const html = buildNoItemsEmailHtml("2026-03-20");
+    expect(html).not.toContain("被投企业");
+    expect(html).not.toContain("融资金额");
+    expect(html).not.toContain("融资轮次");
+  });
+
+  it("无融资时邮件主题应包含「今日无新增」", () => {
+    const today = "2026-03-20";
+    const subject = `36氪融资日报 · ${today} · 今日无新增`;
+    expect(subject).toContain("今日无新增");
+    expect(subject).not.toContain("条");
+  });
+
+  it("有融资时邮件主题应包含条数", () => {
+    const today = "2026-03-20";
+    const count = 5;
+    const subject = `36氪融资日报 · ${today} · ${count}条`;
+    expect(subject).toContain("5条");
+    expect(subject).not.toContain("今日无新增");
+  });
+});
+
 describe("cron接口密钥验证逻辑", () => {
   it("密钥匹配时应通过验证", () => {
     const CRON_SECRET = "test-secret-123";

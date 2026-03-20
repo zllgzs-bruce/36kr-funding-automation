@@ -330,12 +330,30 @@ function buildContactsHtml(contacts: MatchedContact[]): string {
 </div>`;
 }
 
+export function buildNoItemsEmailHtml(reportDate: string): string {
+  return `<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:'PingFang SC','Helvetica Neue',Arial,sans-serif;color:#333;max-width:700px;margin:0 auto;padding:20px;background:#fafafa;">
+  <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#95a5a6,#7f8c8d);padding:24px 28px;">
+      <h1 style="margin:0;color:#fff;font-size:20px;font-weight:bold;">36氪融资日报</h1>
+      <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">${reportDate} · 今日无新增融资快讯</p>
+    </div>
+    <div style="padding:40px 28px;text-align:center;">
+      <p style="color:#666;font-size:15px;margin:0 0 10px;">36氪 RSS 今日未抓取到融资快讯</p>
+      <p style="color:#aaa;font-size:13px;margin:0;">可能是周末或节假日新闻较少，明天继续自动报送</p>
+    </div>
+    <div style="padding:12px 28px;background:#f8f8f8;border-top:1px solid #eee;font-size:12px;color:#aaa;text-align:center;">
+      数据来源：36氪 · 每日自动抓取 · 仅供参考
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 export async function buildEmailHtml(items: FundingItem[], reportDate: string): Promise<string> {
   if (items.length === 0) {
-    return `<html><body style="font-family:'PingFang SC',Arial,sans-serif;color:#333;max-width:700px;margin:0 auto;padding:20px;">
-<h2 style="color:#e74c3c;">36氪融资日报 · ${reportDate}</h2>
-<p style="color:#999;">今日暂无融资快讯。</p>
-</body></html>`;
+    return buildNoItemsEmailHtml(reportDate);
   }
 
   const rowsHtml: string[] = [];
@@ -455,16 +473,26 @@ export async function runDailyFundingReport(): Promise<{
     await saveFundingItems(deduped, today);
   }
 
-  // 5. 生成邮件HTML（含话单匹配）
-  const subject = `36氪融资日报 · ${today} · ${deduped.length}条`;
-  const html = await buildEmailHtml(deduped, today);
+  // 5. 生成邮件HTML并发送
+  let subject: string;
+  let html: string;
+
+  if (deduped.length === 0) {
+    // 无融资快讯：发简短通知邮件，不发空邮件
+    subject = `36氪融资日报 · ${today} · 今日无新增`;
+    html = buildNoItemsEmailHtml(today);
+    console.log(`[Funding] 今日无融资快讯，发送简短通知`);
+  } else {
+    subject = `36氪融资日报 · ${today} · ${deduped.length}条`;
+    html = await buildEmailHtml(deduped, today);
+  }
 
   // 6. 发送邮件
   const sent = await sendEmail(subject, html);
 
-  const message = sent
-    ? `成功发送 ${deduped.length} 条融资快讯`
-    : `邮件发送失败，共 ${deduped.length} 条快讯`;
+  const message = deduped.length === 0
+    ? (sent ? `已发送「今日无新增」通知` : `通知邮件发送失败`)
+    : (sent ? `成功发送 ${deduped.length} 条融资快讯` : `邮件发送失败，共 ${deduped.length} 条快讯`);
 
   console.log(`[Funding] === 任务结束: ${message} ===`);
   return { success: sent, itemCount: deduped.length, message };
