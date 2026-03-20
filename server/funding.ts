@@ -470,15 +470,69 @@ export async function runDailyFundingReport(): Promise<{
   return { success: sent, itemCount: deduped.length, message };
 }
 
-function deduplicateByCompany(items: FundingItem[]): FundingItem[] {
-  const seen = new Map<string, FundingItem>();
-  for (const item of items) {
-    const key = item.investedCompanyShort || item.investedCompany || item.title.slice(0, 15);
-    if (!seen.has(key) || (item.desc.length > (seen.get(key)?.desc.length ?? 0))) {
-      seen.set(key, item);
+function normalizeForDedup(name: string): string {
+  if (!name) return "";
+  // 去掉常见企业后缀和地名前缀，用于匹配比较
+  return name
+    .replace(/[（(][^）)]*[）)]/g, "")
+    .replace(/(有限公司|股份有限公司|股份公司|有限责任公司|集团有限公司|集团股份有限公司)/g, "")
+    .replace(/^(北京|上海|深圳|广州|杭州|成都|武汉|南京|西安|重庆|天津)/, "")
+    .trim();
+}
+
+function isSameCompany(a: FundingItem, b: FundingItem): boolean {
+  // 收集双方所有可能的名称变体
+  const getNorms = (item: FundingItem): string[] => {
+    const names: string[] = [];
+    if (item.investedCompany) {
+      names.push(item.investedCompany);
+      names.push(normalizeForDedup(item.investedCompany));
+    }
+    if (item.investedCompanyShort) {
+      names.push(item.investedCompanyShort);
+      names.push(normalizeForDedup(item.investedCompanyShort));
+    }
+    return names.filter(n => n.length >= 3); // 过短的不参与比较
+  };
+
+  const normsA = getNorms(a);
+  const normsB = getNorms(b);
+
+  // 任意一对名称相同，就是同一家企业
+  for (const na of normsA) {
+    for (const nb of normsB) {
+      if (na === nb) return true;
+      // 一方包含另一方（全称包含简称）
+      if (na.length >= 4 && nb.length >= 4) {
+        if (na.includes(nb) || nb.includes(na)) return true;
+      }
     }
   }
-  return Array.from(seen.values());
+  return false;
+}
+
+function deduplicateByCompany(items: FundingItem[]): FundingItem[] {
+  const result: FundingItem[] = [];
+
+  for (const item of items) {
+    // 检查是否已有相同企业
+    const existingIdx = result.findIndex(existing => isSameCompany(existing, item));
+
+    if (existingIdx === -1) {
+      // 新企业，直接加入
+      result.push(item);
+    } else {
+      // 重复企业，保留信息更全的那一条
+      const existing = result[existingIdx];
+      const existingScore = (existing.investedCompany ? 2 : 0) + (existing.amount && existing.amount !== "未披露" ? 1 : 0) + existing.desc.length / 100;
+      const newScore = (item.investedCompany ? 2 : 0) + (item.amount && item.amount !== "未披露" ? 1 : 0) + item.desc.length / 100;
+      if (newScore > existingScore) {
+        result[existingIdx] = item;
+      }
+    }
+  }
+
+  return result;
 }
 
 // ─── 数据库存储 ──────────────────────────────────────────

@@ -157,6 +157,110 @@ describe("HR职位优先级排序", () => {
   });
 });
 
+// 复制测试用的辅助函数
+function normalizeForDedup(name: string): string {
+  if (!name) return "";
+  return name
+    .replace(/[（(][^）)]*[）)]/g, "")
+    .replace(/(有限公司|股份有限公司|股份公司|有限责任公司|集团有限公司|集团股份有限公司)/g, "")
+    .replace(/^(北京|上海|深圳|广州|杭州|成都|武汉|南京|西安|重庆|天津)/, "")
+    .trim();
+}
+
+interface TestFundingItem {
+  title: string;
+  desc: string;
+  investedCompany?: string;
+  investedCompanyShort?: string;
+  amount?: string;
+}
+
+function isSameCompany(a: TestFundingItem, b: TestFundingItem): boolean {
+  const getNorms = (item: TestFundingItem): string[] => {
+    const names: string[] = [];
+    if (item.investedCompany) {
+      names.push(item.investedCompany);
+      names.push(normalizeForDedup(item.investedCompany));
+    }
+    if (item.investedCompanyShort) {
+      names.push(item.investedCompanyShort);
+      names.push(normalizeForDedup(item.investedCompanyShort));
+    }
+    return names.filter(n => n.length >= 3);
+  };
+  const normsA = getNorms(a);
+  const normsB = getNorms(b);
+  for (const na of normsA) {
+    for (const nb of normsB) {
+      if (na === nb) return true;
+      if (na.length >= 4 && nb.length >= 4) {
+        if (na.includes(nb) || nb.includes(na)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function deduplicateByCompany(items: TestFundingItem[]): TestFundingItem[] {
+  const result: TestFundingItem[] = [];
+  for (const item of items) {
+    const existingIdx = result.findIndex(existing => isSameCompany(existing, item));
+    if (existingIdx === -1) {
+      result.push(item);
+    } else {
+      const existing = result[existingIdx];
+      const score = (i: TestFundingItem) =>
+        (i.investedCompany ? 2 : 0) + (i.amount && i.amount !== "未披露" ? 1 : 0) + i.desc.length / 100;
+      if (score(item) > score(existing)) result[existingIdx] = item;
+    }
+  }
+  return result;
+}
+
+describe("企业名去重逻辑", () => {
+  it("全称相同应去重", () => {
+    const items = [
+      { title: "A", desc: "desc1", investedCompany: "天基智能有限公司", investedCompanyShort: "天基智能" },
+      { title: "B", desc: "desc2", investedCompany: "天基智能有限公司", investedCompanyShort: "天基" },
+    ];
+    expect(deduplicateByCompany(items)).toHaveLength(1);
+  });
+
+  it("简称相同应去重", () => {
+    const items = [
+      { title: "A", desc: "desc1", investedCompanyShort: "天基智能", investedCompany: "天基智能科技有限公司" },
+      { title: "B", desc: "desc2", investedCompanyShort: "天基智能", investedCompany: "天基智能集成电路有限公司" },
+    ];
+    expect(deduplicateByCompany(items)).toHaveLength(1);
+  });
+
+  it("全称包含简称应去重（天基智能科技 vs 天基智能）", () => {
+    const items = [
+      { title: "A", desc: "desc1", investedCompany: "天基智能科技有限公司", investedCompanyShort: "天基智能科技" },
+      { title: "B", desc: "desc2 longer", investedCompany: "天基智能有限公司", investedCompanyShort: "天基智能" },
+    ];
+    expect(deduplicateByCompany(items)).toHaveLength(1);
+  });
+
+  it("不同企业不应去重", () => {
+    const items = [
+      { title: "A", desc: "desc1", investedCompany: "天基智能有限公司", investedCompanyShort: "天基智能" },
+      { title: "B", desc: "desc2", investedCompany: "盘拓科技有限公司", investedCompanyShort: "盘拓科技" },
+    ];
+    expect(deduplicateByCompany(items)).toHaveLength(2);
+  });
+
+  it("保留信息更全的那条（有融资金额的优先）", () => {
+    const items = [
+      { title: "A", desc: "short", investedCompanyShort: "天基智能", amount: "未披露" },
+      { title: "B", desc: "longer desc here", investedCompanyShort: "天基智能", amount: "5000万元" },
+    ];
+    const result = deduplicateByCompany(items);
+    expect(result).toHaveLength(1);
+    expect(result[0].amount).toBe("5000万元");
+  });
+});
+
 describe("cron接口密钥验证逻辑", () => {
   it("密钥匹配时应通过验证", () => {
     const CRON_SECRET = "test-secret-123";
