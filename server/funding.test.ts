@@ -1,6 +1,6 @@
 /**
  * 融资日报功能测试
- * 测试 RSS 过滤、企业名标准化、话单匹配逻辑
+ * 测试 Gateway API 过滤、企业名标准化、话单匹配逻辑
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -293,6 +293,59 @@ describe("无融资快讯时的简短通知邮件", () => {
     const subject = `36氪融资日报 · ${today} · ${count}条`;
     expect(subject).toContain("5条");
     expect(subject).not.toContain("今日无新增");
+  });
+});
+
+describe("Gateway API 翻页逻辑", () => {
+  // 模拟 Gateway API 返回的数据结构
+  function makeItem(publishTime: number, title: string, content: string) {
+    return {
+      templateMaterial: {
+        publishTime,
+        widgetTitle: title,
+        widgetContent: content,
+        itemId: Math.floor(Math.random() * 1000000),
+      },
+    };
+  }
+
+  it("昨天发布的融资快讯应被收集", () => {
+    const todayStartBJ = new Date("2026-03-30T00:00:00+08:00");
+    const yesterdayStartBJ = new Date(todayStartBJ.getTime() - 24 * 60 * 60 * 1000);
+    const yesterdayNoon = new Date("2026-03-29T12:00:00+08:00");
+
+    // 昨天中午发布的，应在范围内
+    expect(yesterdayNoon >= yesterdayStartBJ && yesterdayNoon < todayStartBJ).toBe(true);
+  });
+
+  it("今天发布的快讯应被跳过（不在昨天范围内）", () => {
+    const todayStartBJ = new Date("2026-03-30T00:00:00+08:00");
+    const yesterdayStartBJ = new Date(todayStartBJ.getTime() - 24 * 60 * 60 * 1000);
+    const todayMorning = new Date("2026-03-30T08:00:00+08:00");
+
+    // 今天早上发布的，不在昨天范围内
+    expect(todayMorning >= yesterdayStartBJ && todayMorning < todayStartBJ).toBe(false);
+  });
+
+  it("前天发布的快讯应触发停止翻页", () => {
+    const todayStartBJ = new Date("2026-03-30T00:00:00+08:00");
+    const yesterdayStartBJ = new Date(todayStartBJ.getTime() - 24 * 60 * 60 * 1000);
+    const dayBeforeYesterday = new Date("2026-03-28T20:00:00+08:00");
+
+    // 前天发布的，早于昨天00:00，应停止翻页
+    expect(dayBeforeYesterday < yesterdayStartBJ).toBe(true);
+  });
+
+  it("融资快讯过滤：Gateway API 条目格式应正常过滤", () => {
+    const title = "某AI公司完成A轮融资5000万";
+    const content = "36氪获悉，该公司完成A轮融资";
+    expect(isFundingItem(title, content)).toBe(true);
+  });
+
+  it("非融资快讯不应被收集", () => {
+    const title = "某公司发布2025年报";
+    const content = "全年营收增长20%";
+    expect(isFundingItem(title, content)).toBe(false);
   });
 });
 

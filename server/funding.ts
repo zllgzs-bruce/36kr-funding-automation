@@ -1,13 +1,11 @@
 /**
  * 36氪融资日报服务
- * - 抓取RSS，提取融资快讯
+ * - 通过Gateway API翻页抓取昨天全天融资快讯
  * - 用LLM提取结构化信息（企业名、投资方、金额、轮次、行业）
  * - 在话单库中模糊匹配联系人（HR优先）
  * - 发送HTML邮件到 wei.zhang@insgeek.com
  */
 
-import RSSParser from "rss-parser";
-import * as cheerio from "cheerio";
 import nodemailer from "nodemailer";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
@@ -17,11 +15,13 @@ import { fundingItems } from "../drizzle/schema";
 
 // ─── 配置 ───────────────────────────────────────────────
 
+const GATEWAY_API = "https://gateway.36kr.com/api/mis/nav/newsflash/list";
+
 const GMAIL_USER = process.env.GMAIL_USER || "zllgzs@gmail.com";
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || "";
 const RECIPIENT = process.env.FUNDING_REPORT_RECIPIENT || "wei.zhang@insgeek.com";
 
-// 融资关键词（用于初步过滤RSS条目）
+// 融资关键词（用于初步过滤快讯条目）
 const FUNDING_TITLE_PATTERNS = [
   /完成.{0,8}融资/, /获.{0,5}融资/, /A轮融资/, /B轮融资/, /C轮融资/, /D轮融资/,
   /天使轮/, /Pre-A/, /Pre-B/, /战略融资/, /亿元融资/, /万元融资/,
@@ -68,7 +68,7 @@ export interface MatchedContact {
   matchTerm: string;
 }
 
-// ─── RSS抓取 ─────────────────────────────────────────────
+// ─── Gateway API 抓取 ────────────────────────────────────
 
 function isFundingItem(title: string, desc: string): boolean {
   for (const kw of FUNDING_EXCLUDE) {
@@ -84,38 +84,115 @@ function isFundingItem(title: string, desc: string): boolean {
   return false;
 }
 
-export async function fetchFundingFromRSS(): Promise<FundingItem[]> {
-  const parser = new RSSParser({
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      "Accept": "application/rss+xml, application/xml, */*",
-    },
-    timeout: 20000,
-  });
+/**
+ * 通过36氪 Gateway API 翻页抓取，收集昨天（北京时间）全天的融资快讯
+ * pageEvent=0 获取最新，pageEvent=1+pageCallback 继续翻页
+ * 遇到发布时间早于昨天00:00则停止
+ */
+export async function fetchFundingFromGateway(): Promise<FundingItem[]> {
+  // 计算昨天的时间范围（北京时间）
+  const now = new Date();
+  // 北京时间今天00:00:00
+  const todayStartBJ = new Date(
+    new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" }) + "T00:00:00+08:00"
+  );
+  // 昨天00:00:00
+  const yesterdayStartBJ = new Date(todayStartBJ.getTime() - 24 * 60 * 60 * 1000);
 
-  let feed;
-  try {
-    feed = await parser.parseURL("https://36kr.com/feed");
-  } catch (err) {
-    console.error("[Funding] RSS fetch failed:", err);
-    return [];
-  }
+  console.log(`[Funding] 抓取范围: ${yesterdayStartBJ.toISOString()} ~ ${todayStartBJ.toISOString()}`);
 
   const results: FundingItem[] = [];
-  for (const entry of feed.items || []) {
-    const title = (entry.title || "").trim();
-    const descHtml = entry.content || entry.summary || entry.contentSnippet || "";
-    const $ = cheerio.load(descHtml);
-    const desc = $.text().trim().slice(0, 500);
-    const link = entry.link || "";
-    const published = entry.pubDate || entry.isoDate || "";
+  let pageCallback = "";
+  let pageEvent = 0;
+  let page = 0;
+  const MAX_PAGES = 20; // 最多翻20页（每页20条，最多400条），防止死循环
 
-    if (isFundingItem(title, desc)) {
-      results.push({ title, desc, link, published });
+  while (page < MAX_PAGES) {
+    page++;
+    const body: Record<string, unknown> = {
+      partner_id: "web",
+      timestamp: Date.now(),
+      param: {
+        pageSize: 20,
+        pageEvent,
+        siteId: 1,
+        type: 0,
+        platformId: 2,
+        ...(pageCallback ? { pageCallback } : {}),
+      },
+    };
+
+    let data: { itemList?: unknown[]; pageCallback?: string; hasNextPage?: number };
+    try {
+      const resp = await fetch(GATEWAY_API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json;charset=utf-8",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "Referer": "https://36kr.com/newsflashes",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await resp.json() as { code: number; data: typeof data };
+      if (json.code !== 0 || !json.data) {
+        console.error("[Funding] Gateway API error:", json.code);
+        break;
+      }
+      data = json.data;
+    } catch (err) {
+      console.error("[Funding] Gateway API fetch failed:", err);
+      break;
     }
+
+    const items = (data.itemList || []) as Array<{
+      templateMaterial?: {
+        publishTime?: number;
+        widgetTitle?: string;
+        widgetContent?: string;
+        itemId?: number;
+      };
+    }>;
+
+    let reachedBeforeYesterday = false;
+    let pageFoundCount = 0;
+
+    for (const item of items) {
+      const m = item.templateMaterial || {};
+      const publishTime = m.publishTime || 0;
+      const pubDate = new Date(publishTime);
+
+      // 早于昨天00:00，停止翻页
+      if (pubDate < yesterdayStartBJ) {
+        reachedBeforeYesterday = true;
+        break;
+      }
+
+      // 只保留昨天的（不要今天的）
+      if (pubDate >= todayStartBJ) continue;
+
+      const title = (m.widgetTitle || "").trim();
+      const desc = (m.widgetContent || "").trim().slice(0, 500);
+      const itemId = m.itemId || 0;
+      const link = itemId ? `https://36kr.com/newsflashes/${itemId}` : "";
+      const published = pubDate.toISOString();
+
+      if (isFundingItem(title, desc)) {
+        results.push({ title, desc, link, published });
+        pageFoundCount++;
+      }
+    }
+
+    console.log(`[Funding] 第${page}页: ${items.length}条原始, 本页命中${pageFoundCount}条融资`);
+
+    // 停止条件：已到昨天之前、没有下一页、或没有pageCallback
+    if (reachedBeforeYesterday || !data.hasNextPage || !data.pageCallback) break;
+
+    pageCallback = data.pageCallback;
+    pageEvent = 1;
   }
 
-  console.log(`[Funding] RSS: ${feed.items?.length ?? 0} items, ${results.length} funding-related`);
+  console.log(`[Funding] Gateway API: 共翻${page}页, 找到${results.length}条融资快讯`);
   return results;
 }
 
@@ -459,8 +536,8 @@ export async function runDailyFundingReport(): Promise<{
 
   console.log(`[Funding] === 融资日报任务开始 ${new Date().toISOString()} ===`);
 
-  // 1. 抓取RSS
-  const rawItems = await fetchFundingFromRSS();
+  // 1. 通过Gateway API抓取昨天全天融资快讯
+  const rawItems = await fetchFundingFromGateway();
 
   // 2. LLM提取结构化信息
   const enrichedItems = rawItems.length > 0 ? await enrichWithLLM(rawItems) : [];
