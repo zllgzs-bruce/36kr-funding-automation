@@ -1,0 +1,26 @@
+name: Daily Funding Report
+
+on:
+  schedule:
+    # 每天北京时间 09:00 触发（UTC 01:00）
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  trigger-funding-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Funding Report
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            "https://phonebook-xf5yjzed.manus.space/api/funding-cron?key=${{ secrets.FUNDING_CRON_SECRET }}" \
+            -d '{}' \
+            -v
+
+      - name: Wait for task completion
+        run: sleep 10
+
+      - name: Verify completion
+        run: |
+          echo "Funding report task triggered successfully"
