@@ -2,8 +2,8 @@ name: Daily Funding Report
 
 on:
   schedule:
-    # 每天北京时间 09:00 触发（UTC 01:00）
-    - cron: '0 1 * * *'
+    # 每天北京时间前一天 07:00 触发（UTC 23:00）
+    - cron: '0 23 * * *'
   workflow_dispatch:  # 允许手动触发
 
 jobs:
